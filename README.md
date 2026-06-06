@@ -1,6 +1,12 @@
-# Big2 Vision Agent
+# Big2VisionAgent-codex
 
-Playwright-based browser automation agent for [神來也大老二](https://www.gamesofa.com/bigtwo/#) — a popular Taiwanese online Big Two card game hosted on the Gamesofa platform.
+Connector/executor repository for running an AlphaBig2 ML model on the
+[神來也大老二](https://www.gamesofa.com/bigtwo/#) web game.
+
+The ML/model/training repository is the sibling project:
+
+- `/Users/shukaihu/Code_Project_Local/AlphaBig2-codex`
+- GitHub: `ShuKaiHu/AlphaBig2-codex`
 
 > **Target game:** 神來也大老二 (`https://www.gamesofa.com/bigtwo/#`)
 > A browser-based, real-money Big Two (大老二) game built on the Cocos game engine. Players are matched into 4-player sessions; each session consists of up to 4 rounds, ending early if any player runs out of coins.
@@ -43,6 +49,8 @@ src/big2_vision_agent/
 
 Per-run artifacts saved to `artifacts/<timestamp>/autoplay_agent/`:
 `run.log`, `action_log.json`, `network_log.json`, `game_timeline.json`, screenshots, optional video.
+Generated artifacts, browser state, and local JSONL corpora are ignored by git.
+Curated ML datasets belong in `AlphaBig2-codex/ML_AB/data/`.
 
 ## Setup
 
@@ -54,13 +62,39 @@ uv run playwright install chromium
 uv run big2-agent login
 ```
 
-## Usage
+## Official Online ML Test
 
 ```bash
-# Play 1 game then stop (default)
-uv run big2-agent autoplay-agent --executor packet
+GAMES=3 ./scripts/run_latest_online_mcts.sh
+```
 
-# Play 3 games
+This script runs the current official setup:
+
+- checkpoint: `/Users/shukaihu/Code_Project_Local/AlphaBig2-codex/ML_AB/models/big2_transformer_best.pt`
+- wrapper: `/Users/shukaihu/Code_Project_Local/Big2VisionAgent-codex/alpha_big2_wrapper.py`
+- agent: `mcts`
+- MCTS limit: `1.0` second per decision
+- root selection: `visits`
+
+Equivalent expanded command:
+
+```bash
+ALPHA_BIG2_CKPT=/Users/shukaihu/Code_Project_Local/AlphaBig2-codex/ML_AB/models/big2_transformer_best.pt \
+ALPHA_BIG2_AGENT=mcts \
+ALPHA_BIG2_MCTS_SECONDS=1.0 \
+ALPHA_BIG2_MCTS_SELECTION=visits \
+ALPHA_BIG2_MCTS_POSTERIOR_PARTICLES=24 \
+ALPHA_BIG2_MCTS_HISTORY_WEIGHT=1.0 \
+ALPHA_BIG2_MCTS_ROOT_WARMUP=12 \
+ALPHA_BIG2_MCTS_ACTION_VALUE_FALLBACK_WEIGHT=0.0 \
+BIG2_AGENT_COMMAND=/Users/shukaihu/Code_Project_Local/Big2VisionAgent-codex/alpha_big2_wrapper.py \
+uv run big2-agent autoplay-agent --executor packet --games 3
+```
+
+## Diagnostic Usage
+
+```bash
+# Play with the built-in fallback agent
 uv run big2-agent autoplay-agent --executor packet --games 3
 
 # Record video
