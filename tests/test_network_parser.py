@@ -80,6 +80,42 @@ def test_timeline_confirms_self_play_and_opponent_actions():
     )
 
 
+def test_relative_seat_labels_update_after_room_change():
+    room_a = (
+        "sJS2 room-a 0 0 0 1 0 10 map 0 0 "
+        "a@x,A,1,100,title,0,0,0,0,0,url,m,,,"
+        "|b@x,B,1,100,title,0,0,0,0,0,url,m,,,"
+        "|me@x,Me,1,100,title,0,0,0,0,0,url,m,,,"
+        "|d@x,D,1,100,title,0,0,0,0,0,url,m,,,"
+    )
+    room_b = (
+        "sJS2 room-b 0 0 0 1 0 10 map 0 0 "
+        "a@x,A,1,100,title,0,0,0,0,0,url,m,,,"
+        "|me@x,Me,1,100,title,0,0,0,0,0,url,m,,,"
+        "|c@x,C,1,100,title,0,0,0,0,0,url,m,,,"
+        "|d@x,D,1,100,title,0,0,0,0,0,url,m,,,"
+    )
+    entries = [
+        {"kind": "ws_message", "payload": room_a, "seq": 1, "ts": 1000},
+        {"kind": "ws_message", "payload": "play 2 1 0!1!2!3 411631", "seq": 2, "ts": 1001},
+        {"kind": "ws_message", "payload": "showScore 2 8 ", "seq": 3, "ts": 1002},
+        {"kind": "ws_message", "payload": room_b, "seq": 4, "ts": 1003},
+        {"kind": "ws_message", "payload": "play 1 1 0!1!2!3 2731", "seq": 5, "ts": 1004},
+        {"kind": "ws_message", "payload": "plsend 1 27", "seq": 6, "ts": 1005},
+        {"kind": "ws_message", "payload": "showScore 1 8 ", "seq": 7, "ts": 1006},
+    ]
+
+    parsed = parse_network_entries(entries)
+    room_snapshots = [item for item in parsed if item["event"] == "room_snapshot"]
+
+    assert room_snapshots[0]["self_index"] == "2"
+    assert room_snapshots[0]["players"][2]["actor"] == "self"
+    assert room_snapshots[1]["self_index"] == "1"
+    assert room_snapshots[1]["players"][1]["actor"] == "self"
+    assert parsed[5]["actor"] == "self"
+    assert parsed[6]["actor"] == "self"
+
+
 def test_summarize_turns_groups_actions_into_tricks():
     timeline = [
         {"seq": 1, "event": "player_play", "actor": "left", "cards": ["43"], "combo": {"type": "single"}},

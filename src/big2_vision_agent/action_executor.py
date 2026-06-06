@@ -425,23 +425,37 @@ async def execute_packet_decision(
         }
 
     # Pre-execution check: MCTS takes ~1 s; auto-win or one-card-rule enforcement
-    # may have already played cards for us during that time.  If the turn has
-    # already left "self" before we even send, there is nothing to do — return
-    # ok=True so the caller doesn't retry or force-pass unnecessarily.
+    # may have already played cards for us during that time.
     pre_state = await read_big2_game_state(page)
-    if pre_state.get("turn") != "self":
+    confirmation_states = [_compact_packet_confirmation_state(pre_state, decision)]
+    if _packet_play_confirmed(state, pre_state, decision):
         return {
             "ok": True,
+            "sent": False,
             "action": "play",
             "card_codes": decision.card_codes,
             "reason": None,
+            "note": "auto_played_before_send",
+            "state": pre_state,
+            "state_before": state,
+            "confirmation_states": confirmation_states,
+        }
+
+    if pre_state.get("turn") != "self":
+        return {
+            "ok": False,
+            "sent": False,
+            "action": "play",
+            "card_codes": decision.card_codes,
+            "reason": "state_changed_before_send",
             "note": "auto_advanced_before_send",
             "state": pre_state,
+            "state_before": state,
+            "confirmation_states": confirmation_states,
         }
 
     cards_blob = "".join(decision.card_codes)
     message = f"send {WS_SEND_TARGET_CODE} {cards_blob}"
-    confirmation_states = [_compact_packet_confirmation_state(pre_state, decision)]
     if not _is_self_actionable_turn(pre_state):
         return {
             "ok": False,

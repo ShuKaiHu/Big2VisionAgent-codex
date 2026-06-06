@@ -191,7 +191,7 @@ class _FakePage:
 
 
 @pytest.mark.asyncio
-async def test_execute_packet_decision_accepts_success_when_turn_moves_away(monkeypatch):
+async def test_execute_packet_decision_rejects_turn_change_without_card_removal(monkeypatch):
     state_before = {
         "turn": "self",
         "my_clock_active": True,
@@ -229,8 +229,8 @@ async def test_execute_packet_decision_accepts_success_when_turn_moves_away(monk
         decision=AgentDecision(action="play", card_codes=["43"], combo_type="single"),
     )
 
-    assert result["ok"] is True
-    assert result["reason"] is None
+    assert result["ok"] is False
+    assert result["reason"] == "play_rejected_card_type_error"
     assert result["state_before"]["turn"] == "self"
     assert result["confirmation_states"][-1]["turn"] == "right"
 
@@ -387,6 +387,50 @@ async def test_execute_packet_decision_aborts_if_state_changed_before_send(monke
         decision=AgentDecision(action="play", card_codes=["43"], combo_type="single"),
     )
 
-    assert result["ok"] is True
+    assert result["ok"] is False
+    assert result["sent"] is False
+    assert result["reason"] == "state_changed_before_send"
     assert result["note"] == "auto_advanced_before_send"
+    send_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_packet_decision_accepts_auto_played_before_send(monkeypatch):
+    state_before = {
+        "turn": "self",
+        "my_clock_active": True,
+        "my_hand_count": 1,
+        "my_cards": [{"sprite_frame": "c27"}],
+        "action_buttons": {
+            "pass": {"active": True},
+            "play": {"active": True},
+        },
+    }
+    auto_played_state = {
+        "turn": "self",
+        "my_clock_active": True,
+        "my_hand_count": 0,
+        "my_cards": [],
+        "action_buttons": {
+            "pass": {"active": True},
+            "play": {"active": True},
+        },
+    }
+    read_mock = AsyncMock(return_value=auto_played_state)
+    send_mock = AsyncMock(return_value=True)
+    monkeypatch.setattr("big2_vision_agent.action_executor.read_big2_game_state", read_mock)
+    monkeypatch.setattr("big2_vision_agent.action_executor.ws_send_raw", send_mock)
+
+    result = await execute_packet_decision(
+        page=_FakePage(),
+        state=state_before,
+        decision=AgentDecision(action="play", card_codes=["27"], combo_type="single"),
+    )
+
+    assert result["ok"] is True
+    assert result["sent"] is False
+    assert result["reason"] is None
+    assert result["note"] == "auto_played_before_send"
+    assert result["state_before"]["my_hand_count"] == 1
+    assert result["state"]["my_hand_count"] == 0
     send_mock.assert_not_awaited()

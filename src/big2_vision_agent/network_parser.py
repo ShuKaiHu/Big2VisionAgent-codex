@@ -775,34 +775,59 @@ def _build_seat_map(self_index: str | None) -> dict[str, str]:
     }
 
 
+def _annotate_room_snapshot(
+    event: dict[str, object],
+    seat_map: dict[str, str],
+    self_index: str | None,
+) -> None:
+    event["self_index"] = self_index
+    players = event.get("players")
+    if not isinstance(players, list):
+        return
+
+    annotated_players = []
+    for seat_index, player in enumerate(players):
+        if not isinstance(player, dict):
+            annotated_players.append(player)
+            continue
+        annotated = dict(player)
+        annotated["seat_index"] = seat_index
+        annotated["actor"] = seat_map.get(str(seat_index), str(seat_index))
+        annotated_players.append(annotated)
+    event["players"] = annotated_players
+
+
 def _apply_relative_seat_labels(events: list[dict[str, object]]) -> None:
-    self_index = None
+    self_index: str | None = None
+    seat_map: dict[str, str] = {}
+    current_room_id: str | None = None
+    pending_room_snapshots: list[dict[str, object]] = []
+
     for event in events:
+        if event.get("event") == "room_snapshot":
+            room_id = event.get("room_id")
+            if isinstance(room_id, str) and room_id != current_room_id:
+                current_room_id = room_id
+                self_index = None
+                seat_map = {}
+                pending_room_snapshots = []
+            _annotate_room_snapshot(event, seat_map, self_index)
+            if not seat_map:
+                pending_room_snapshots.append(event)
+            continue
+
         if event.get("command") == "play" and event.get("event") == "hand_snapshot":
             actor_index = event.get("actor_index")
             if isinstance(actor_index, str):
                 self_index = actor_index
-                break
+                seat_map = _build_seat_map(self_index)
+                for snapshot in pending_room_snapshots:
+                    _annotate_room_snapshot(snapshot, seat_map, self_index)
+                pending_room_snapshots = []
 
-    seat_map = _build_seat_map(self_index)
-    for event in events:
         actor_index = event.get("actor_index")
         if isinstance(actor_index, str):
             event["actor"] = seat_map.get(actor_index, actor_index)
-        if event.get("event") == "room_snapshot":
-            players = event.get("players")
-            event["self_index"] = self_index
-            if isinstance(players, list):
-                annotated_players = []
-                for seat_index, player in enumerate(players):
-                    if not isinstance(player, dict):
-                        annotated_players.append(player)
-                        continue
-                    annotated = dict(player)
-                    annotated["seat_index"] = seat_index
-                    annotated["actor"] = seat_map.get(str(seat_index), str(seat_index))
-                    annotated_players.append(annotated)
-                event["players"] = annotated_players
         if event.get("event") == "hand_snapshot":
             event["event"] = "self_hand_snapshot"
             event["actor"] = "self"

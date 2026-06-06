@@ -88,7 +88,10 @@ def test_training_export_attaches_round_score_and_tags(tmp_path: Path):
         "right": ["21"],
     }
     assert rows[0]["decision_matches_model"] is True
+    assert rows[0]["training_usable"] is True
+    assert rows[0]["training_exclusion_reason"] is None
     assert "single_breaks_straight" in rows[0]["tags"]
+    assert rows[0]["preference_label"] is None
 
     dataset_path, summary_path = write_training_export(artifact_dir)
     assert dataset_path.exists()
@@ -99,6 +102,38 @@ def test_training_export_attaches_round_score_and_tags(tmp_path: Path):
     append_live_training_corpus(artifact_dir, rows, corpus_path=corpus_path)
     append_live_training_corpus(artifact_dir, rows, corpus_path=corpus_path)
     assert len(corpus_path.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_live_training_corpus_filters_unusable_rows_and_replaces_stale(tmp_path: Path):
+    artifact_dir = tmp_path / "artifacts" / "20260528-010207" / "autoplay_agent"
+    artifact_dir.mkdir(parents=True)
+    corpus_path = tmp_path / "data" / "live_training_corpus.jsonl"
+    stale_dirty = {
+        "decision_id": "20260528-010207:1",
+        "artifact_id": "20260528-010207",
+        "training_usable": False,
+    }
+    corpus_path.parent.mkdir(parents=True)
+    corpus_path.write_text(json.dumps(stale_dirty) + "\n", encoding="utf-8")
+
+    rows = [
+        {
+            "decision_id": "20260528-010207:0",
+            "artifact_id": "20260528-010207",
+            "training_usable": True,
+        },
+        {
+            "decision_id": "20260528-010207:1",
+            "artifact_id": "20260528-010207",
+            "training_usable": False,
+            "training_exclusion_reason": "not_executed",
+        },
+    ]
+
+    append_live_training_corpus(artifact_dir, rows, corpus_path=corpus_path)
+    written = [json.loads(line) for line in corpus_path.read_text(encoding="utf-8").splitlines()]
+
+    assert [row["decision_id"] for row in written] == ["20260528-010207:0"]
 
 
 def test_training_export_does_not_tag_forced_max_single_as_lowest_error(tmp_path: Path):
@@ -210,6 +245,233 @@ def test_training_export_tags_right_one_single_not_max(tmp_path: Path):
     rows = build_training_rows(artifact_dir)
 
     assert "right_one_single_not_max" in rows[0]["tags"]
+
+
+def test_training_export_labels_nonminimal_straight_accessory(tmp_path: Path):
+    artifact_dir = tmp_path / "artifacts" / "20260528-010208" / "autoplay_agent"
+    artifact_dir.mkdir(parents=True)
+    observation = {
+        "game_index": 1,
+        "trick_index": 1,
+        "source_seq": 10,
+        "turn": "self",
+        "self_hand": [{"code": code} for code in ["25", "45", "36", "27", "38", "19"]],
+        "hand_count": 6,
+        "constraint": {
+            "required_combo_type": None,
+            "last_played_cards": [],
+            "last_played_by": None,
+            "passes_since_last_play": 0,
+        },
+        "opponents": [],
+    }
+    decision = {
+        "action": "play",
+        "card_codes": ["25", "36", "27", "38", "19"],
+        "combo_type": "straight",
+    }
+    model_row = {
+        "raw_observation": observation,
+        "observation_key": {
+            "game_index": 1,
+            "trick_index": 1,
+            "source_seq": 10,
+            "turn": "self",
+            "self_hand_codes": ["25", "45", "36", "27", "38", "19"],
+            "required_combo_type": None,
+            "last_played_codes": [],
+            "last_played_by": None,
+            "passes_since_last_play": 0,
+            "opponents": [],
+        },
+        "candidate_scores": [
+            {
+                "action": "play",
+                "combo_type": "straight",
+                "card_codes": ["25", "36", "27", "38", "19"],
+                "action_index": 101,
+                "score": 3.0,
+            },
+            {
+                "action": "play",
+                "combo_type": "straight",
+                "card_codes": ["45", "36", "27", "38", "19"],
+                "action_index": 102,
+                "score": 2.5,
+            },
+        ],
+        "decision": decision,
+    }
+    (artifact_dir / "action_log.json").write_text(
+        json.dumps(
+            [{"step": "agent_decision", "observation": observation, "decision": decision, "result": {"ok": True}}],
+        ),
+        encoding="utf-8",
+    )
+    (artifact_dir / "model_debug.jsonl").write_text(json.dumps(model_row) + "\n", encoding="utf-8")
+    (artifact_dir / "game_timeline.json").write_text(json.dumps([]), encoding="utf-8")
+
+    rows = build_training_rows(artifact_dir)
+
+    assert "straight_nonminimal_accessory" in rows[0]["tags"]
+    assert rows[0]["preference_label"] == {
+        "reason": "straight_nonminimal_accessory",
+        "bad_actions": [
+            {
+                "action": "play",
+                "combo_type": "straight",
+                "card_codes": ["25", "36", "27", "38", "19"],
+            },
+        ],
+        "preferred_actions": [
+            {
+                "action": "play",
+                "combo_type": "straight",
+                "card_codes": ["45", "36", "27", "38", "19"],
+                "action_index": 102,
+                "score": 2.5,
+            },
+        ],
+    }
+
+
+def test_training_export_labels_five_card_available_preference(tmp_path: Path):
+    artifact_dir = tmp_path / "artifacts" / "20260528-010209" / "autoplay_agent"
+    artifact_dir.mkdir(parents=True)
+    observation = {
+        "game_index": 1,
+        "trick_index": 1,
+        "source_seq": 10,
+        "turn": "self",
+        "self_hand": [{"code": code} for code in ["43", "33", "4K", "3K", "1K"]],
+        "hand_count": 5,
+        "constraint": {
+            "required_combo_type": None,
+            "last_played_cards": [],
+            "last_played_by": None,
+            "passes_since_last_play": 3,
+        },
+        "opponents": [],
+    }
+    decision = {"action": "play", "card_codes": ["43", "33"], "combo_type": "pair"}
+    model_row = {
+        "raw_observation": observation,
+        "observation_key": {
+            "game_index": 1,
+            "trick_index": 1,
+            "source_seq": 10,
+            "turn": "self",
+            "self_hand_codes": ["43", "33", "4K", "3K", "1K"],
+            "required_combo_type": None,
+            "last_played_codes": [],
+            "last_played_by": None,
+            "passes_since_last_play": 3,
+            "opponents": [],
+        },
+        "candidate_scores": [
+            {"action": "play", "combo_type": "pair", "card_codes": ["43", "33"], "action_index": 52, "score": 0.1},
+            {
+                "action": "play",
+                "combo_type": "full_house",
+                "card_codes": ["43", "33", "4K", "3K", "1K"],
+                "action_index": 359,
+                "score": 0.0,
+            },
+        ],
+        "policy_candidate_scores": [
+            {
+                "action": "play",
+                "combo_type": "full_house",
+                "card_codes": ["43", "33", "4K", "3K", "1K"],
+                "action_index": 359,
+                "score": 10.0,
+            }
+        ],
+        "decision": decision,
+    }
+    (artifact_dir / "action_log.json").write_text(
+        json.dumps(
+            [{"step": "agent_decision", "observation": observation, "decision": decision, "result": {"ok": True}}],
+        ),
+        encoding="utf-8",
+    )
+    (artifact_dir / "model_debug.jsonl").write_text(json.dumps(model_row) + "\n", encoding="utf-8")
+    (artifact_dir / "game_timeline.json").write_text(json.dumps([]), encoding="utf-8")
+
+    rows = build_training_rows(artifact_dir)
+
+    assert "five_card_available_but_non_five_played" in rows[0]["tags"]
+    assert rows[0]["preference_label"]["reason"] == "five_card_available_but_non_five_played"
+    assert rows[0]["preference_label"]["preferred_actions"] == [
+        {
+            "action": "play",
+            "combo_type": "full_house",
+            "card_codes": ["43", "33", "4K", "3K", "1K"],
+            "action_index": 359,
+            "score": 10.0,
+        }
+    ]
+
+
+def test_training_export_labels_endgame_lowest_single_preference(tmp_path: Path):
+    artifact_dir = tmp_path / "artifacts" / "20260528-010210" / "autoplay_agent"
+    artifact_dir.mkdir(parents=True)
+    observation = {
+        "game_index": 1,
+        "trick_index": 1,
+        "source_seq": 10,
+        "turn": "self",
+        "self_hand": [{"code": code} for code in ["42", "28", "1J"]],
+        "hand_count": 3,
+        "constraint": {
+            "required_combo_type": None,
+            "last_played_cards": [],
+            "last_played_by": None,
+            "passes_since_last_play": 3,
+        },
+        "opponents": [{"seat": "right", "remaining_count": 8}],
+    }
+    decision = {"action": "play", "card_codes": ["42"], "combo_type": "single"}
+    model_row = {
+        "raw_observation": observation,
+        "observation_key": {
+            "game_index": 1,
+            "trick_index": 1,
+            "source_seq": 10,
+            "turn": "self",
+            "self_hand_codes": ["42", "28", "1J"],
+            "required_combo_type": None,
+            "last_played_codes": [],
+            "last_played_by": None,
+            "passes_since_last_play": 3,
+            "opponents": [{"seat": "right", "remaining_count": 8}],
+        },
+        "candidate_scores": [
+            {"action": "play", "combo_type": "single", "card_codes": ["42"], "action_index": 48, "score": 0.3},
+            {"action": "play", "combo_type": "single", "card_codes": ["1J"], "action_index": 35, "score": 0.2},
+            {"action": "play", "combo_type": "single", "card_codes": ["28"], "action_index": 22, "score": 0.1},
+        ],
+        "decision": decision,
+    }
+    (artifact_dir / "action_log.json").write_text(
+        json.dumps(
+            [{"step": "agent_decision", "observation": observation, "decision": decision, "result": {"ok": True}}],
+        ),
+        encoding="utf-8",
+    )
+    (artifact_dir / "model_debug.jsonl").write_text(json.dumps(model_row) + "\n", encoding="utf-8")
+    (artifact_dir / "game_timeline.json").write_text(json.dumps([]), encoding="utf-8")
+
+    rows = build_training_rows(artifact_dir)
+
+    assert "endgame_single_not_lowest" in rows[0]["tags"]
+    assert rows[0]["preference_label"] == {
+        "reason": "endgame_single_not_lowest",
+        "bad_actions": [{"action": "play", "combo_type": "single", "card_codes": ["42"]}],
+        "preferred_actions": [
+            {"action": "play", "combo_type": "single", "card_codes": ["28"], "action_index": 22, "score": 0.1}
+        ],
+    }
 
 
 def test_training_export_tags_inference_error_fallback(tmp_path: Path):

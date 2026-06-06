@@ -51,6 +51,36 @@ def test_build_session_summary_tracks_bankroll_delta_from_next_room():
     assert summary["sessions"][1]["delta_gmoney"] is None
 
 
+def test_build_session_summary_does_not_compare_bankroll_across_different_self_users():
+    timeline = [
+        {
+            "event": "room_snapshot",
+            "room_id": "room-a",
+            "players": [{"actor": "self", "userid": "me-a", "nickname": "A", "gmoney": 100}],
+        },
+        {"event": "round_result", "actor": "self", "score": -1, "remaining_cards": ["11"]},
+        {"event": "round_result", "actor": "right", "score": 3, "remaining_cards": []},
+        {"event": "round_result", "actor": "top", "score": -1, "remaining_cards": ["12"]},
+        {"event": "round_result", "actor": "left", "score": -1, "remaining_cards": ["13"]},
+        {
+            "event": "room_snapshot",
+            "room_id": "room-b",
+            "players": [{"actor": "self", "userid": "me-b", "nickname": "B", "gmoney": 500}],
+        },
+        {"event": "round_result", "actor": "self", "score": 4, "remaining_cards": []},
+        {"event": "round_result", "actor": "right", "score": -1, "remaining_cards": ["21"]},
+        {"event": "round_result", "actor": "top", "score": -1, "remaining_cards": ["22"]},
+        {"event": "round_result", "actor": "left", "score": -2, "remaining_cards": ["23", "24"]},
+    ]
+
+    summary = build_session_summary(timeline)
+
+    assert summary["sessions"][0]["end_gmoney"] is None
+    assert summary["sessions"][0]["delta_gmoney"] is None
+    assert summary["known_gmoney_sessions"] == 0
+    assert summary["total_gmoney_delta"] == 0
+
+
 def test_build_session_summary_includes_rounds_before_room_snapshot():
     timeline = [
         {"event": "round_result", "actor": "self", "score": -1, "remaining_cards": ["11"]},

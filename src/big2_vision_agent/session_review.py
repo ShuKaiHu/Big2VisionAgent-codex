@@ -113,7 +113,18 @@ def build_session_summary(timeline: list[dict[str, object]]) -> dict[str, object
         total_rounds += len(session_rounds)
 
         start_gmoney = start_self.get("gmoney") if isinstance(start_self.get("gmoney"), int) else None
-        end_gmoney = end_self.get("gmoney") if isinstance(end_self.get("gmoney"), int) else None
+        start_userid = start_self.get("userid")
+        end_userid = end_self.get("userid")
+        same_self_user = (
+            isinstance(start_userid, str)
+            and isinstance(end_userid, str)
+            and start_userid == end_userid
+        )
+        end_gmoney = (
+            end_self.get("gmoney")
+            if same_self_user and isinstance(end_self.get("gmoney"), int)
+            else None
+        )
         delta_gmoney = (
             end_gmoney - start_gmoney
             if isinstance(start_gmoney, int) and isinstance(end_gmoney, int)

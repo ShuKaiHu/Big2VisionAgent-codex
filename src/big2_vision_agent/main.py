@@ -2388,7 +2388,7 @@ async def run_autoplay_agent(settings: Settings, timeout_seconds: int, record_vi
                     tl = build_game_timeline(parsed)
                 except Exception:
                     return False
-                f3 = [e for e in tl if e.get("type") == "finish3"]
+                f3 = [e for e in tl if e.get("event") == "finish3"]
                 if not f3:
                     return False
                 max_seq = max(e.get("seq", 0) for e in f3)
@@ -2623,13 +2623,19 @@ async def run_autoplay_agent(settings: Settings, timeout_seconds: int, record_vi
                     json.dumps(observation.model_dump(), ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
+                if observation.turn != "self":
+                    logger.log(
+                        f"Observation says turn={observation.turn}; skipping agent execution"
+                    )
+                    await page.wait_for_timeout(IDLE_POLL_MS)
+                    continue
 
                 # Check finish3 directly from the timeline we just built —
                 # this catches game-over that arrived while we were in an
                 # actionable turn, before the idle-poll throttle fires.
                 # finish3 ends an individual game (局) within the session;
                 # it does NOT end the session (lobby return does that).
-                f3_in_timeline = [e for e in timeline if e.get("type") == "finish3"]
+                f3_in_timeline = [e for e in timeline if e.get("event") == "finish3"]
                 if f3_in_timeline:
                     max_f3_seq = max(e.get("seq", 0) for e in f3_in_timeline)
                     if max_f3_seq > last_finish3_seq:
